@@ -1,0 +1,13 @@
+{
+  "ollama_model": "llama3.2:3b",
+  "ollama_base_url": "http://127.0.0.1:11434",
+  "stats_interval_seconds": 5,
+  "battery_interval_seconds": 10,
+  "cpu_alert_threshold": 90.0,
+  "history_context_window": 5,
+  "backend_port": 8000,
+  "data_dir": "./data",
+  "voice_timeout_seconds": 5,
+  "voice_phrase_limit_seconds": 10,
+  "tts_rate": 175
+}

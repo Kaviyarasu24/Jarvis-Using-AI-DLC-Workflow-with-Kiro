@@ -22,6 +22,7 @@ from .system_monitor import SystemMonitor
 from .browser_module import BrowserModule
 from .coding_assistant import CodingAssistant
 from .calendar_manager import CalendarManager
+from .news_module import fetch_news
 
 logging.basicConfig(
     level=logging.INFO,
@@ -217,6 +218,25 @@ async def delete_task(task_id: str):
 async def get_reminders():
     from dataclasses import asdict
     return {"tasks": [asdict(t) for t in calendar_manager.get_reminders()]}
+
+
+# ---------------------------------------------------------------------------
+# News Endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/news")
+async def get_news(topic: str = "top", limit: int = 20):
+    """Fetch news headlines from Google News RSS. No API key required."""
+    import asyncio
+    loop = asyncio.get_event_loop()
+    items = await loop.run_in_executor(None, lambda: fetch_news(topic, limit))
+    return {"topic": topic, "items": items}
+
+
+@app.get("/api/news/topics")
+async def get_news_topics():
+    """Return available news topic categories."""
+    return {"topics": ["top", "technology", "science", "business", "health", "sports", "world"]}
 
 
 def _today_str() -> str:

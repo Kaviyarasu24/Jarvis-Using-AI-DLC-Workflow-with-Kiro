@@ -1,30 +1,48 @@
-import { Calendar, Wifi, WifiOff, Radio } from 'lucide-react'
+import { Calendar, Radio } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { WebSocketProvider, useWebSocket } from './context/WebSocketContext'
 import ChatPanel from './components/ChatPanel'
-import StatsSidebar from './components/StatsSidebar'
 import NotificationBar from './components/NotificationBar'
 import CalendarPanel from './components/CalendarPanel'
 import type { ConnectionStatus } from './types'
 
 // ============================================================
-// Connection status indicator
+// Status dot component
 // ============================================================
-function ConnectionIndicator({ status }: { status: ConnectionStatus }) {
-  const styles: Record<ConnectionStatus, { dot: string; label: string }> = {
-    connected: { dot: 'bg-jarvis-success', label: 'Connected' },
-    connecting: { dot: 'bg-jarvis-warning animate-pulse', label: 'Connecting...' },
-    reconnecting: { dot: 'bg-jarvis-warning animate-pulse', label: 'Reconnecting...' },
-    disconnected: { dot: 'bg-jarvis-danger', label: 'Disconnected' },
-  }
-  const { dot, label } = styles[status]
+function StatusDot({
+  label,
+  status,
+  testId,
+}: {
+  label: string
+  status: 'online' | 'offline' | 'checking'
+  testId?: string
+}) {
+  const dotClass =
+    status === 'online'
+      ? 'bg-jarvis-success'
+      : status === 'checking'
+      ? 'bg-jarvis-warning animate-pulse'
+      : 'bg-jarvis-danger'
 
   return (
     <div
-      data-testid="connection-indicator"
+      data-testid={testId}
       className="flex items-center gap-1.5 text-xs text-jarvis-muted"
     >
-      <span className={`w-2 h-2 rounded-full ${dot}`} />
-      <span>{label}</span>
+      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotClass}`} />
+      <span className="text-jarvis-muted">{label}</span>
+      <span
+        className={
+          status === 'online'
+            ? 'text-jarvis-success'
+            : status === 'checking'
+            ? 'text-jarvis-warning'
+            : 'text-jarvis-danger'
+        }
+      >
+        {status === 'online' ? 'Online' : status === 'checking' ? '...' : 'Offline'}
+      </span>
     </div>
   )
 }
@@ -37,10 +55,40 @@ function AppInner() {
     connectionStatus,
     notifications,
     dismissNotification,
-    systemStats,
     calendarOpen,
     toggleCalendar,
   } = useWebSocket()
+
+  // Ollama status — poll /health every 15s
+  const [ollamaStatus, setOllamaStatus] = useState<'online' | 'offline' | 'checking'>('checking')
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/health', { signal: AbortSignal.timeout(4000) })
+        if (res.ok) {
+          const data = await res.json()
+          // health endpoint returns ollama_model — if reachable, Ollama is up
+          setOllamaStatus(data.ollama_model ? 'online' : 'offline')
+        } else {
+          setOllamaStatus('offline')
+        }
+      } catch {
+        setOllamaStatus('offline')
+      }
+    }
+    check()
+    const interval = setInterval(check, 15000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Map WebSocket connection status to online/offline
+  const serverStatus: 'online' | 'offline' | 'checking' =
+    connectionStatus === 'connected'
+      ? 'online'
+      : connectionStatus === 'connecting' || connectionStatus === 'reconnecting'
+      ? 'checking'
+      : 'offline'
 
   return (
     <div
@@ -54,8 +102,21 @@ function AppInner() {
           <span className="font-bold text-jarvis-text tracking-wide">JARVIS</span>
           <span className="text-xs text-jarvis-muted">AI Personal Assistant</span>
         </div>
-        <div className="flex items-center gap-3">
-          <ConnectionIndicator status={connectionStatus} />
+
+        <div className="flex items-center gap-4">
+          {/* Server status */}
+          <StatusDot
+            label="Server"
+            status={serverStatus}
+            testId="connection-indicator"
+          />
+          {/* Ollama status */}
+          <StatusDot
+            label="Ollama"
+            status={ollamaStatus}
+            testId="ollama-indicator"
+          />
+          {/* Calendar toggle */}
           <button
             data-testid="calendar-toggle-btn"
             onClick={toggleCalendar}
@@ -72,16 +133,15 @@ function AppInner() {
         </div>
       </header>
 
-      {/* Main content */}
+      {/* Main content — full width */}
       <main className="flex flex-1 min-h-0 overflow-hidden">
         <ChatPanel />
-        <StatsSidebar stats={systemStats} />
       </main>
 
       {/* Calendar panel overlay */}
       {calendarOpen && <CalendarPanel />}
 
-      {/* Notification toasts — fixed overlay, outside layout flow */}
+      {/* Notification toasts — fixed overlay */}
       <NotificationBar notifications={notifications} onDismiss={dismissNotification} />
     </div>
   )

@@ -1,101 +1,105 @@
-import { useEffect, useState, useCallback } from 'react'
-import { Mic, MicOff, Volume2 } from 'lucide-react'
-import { useWebSocket } from '../context/WebSocketContext'
-import type { VoiceStatus, VoiceStatusPayload } from '../types'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { Mic, MicOff, Square } from 'lucide-react'
 
-export default function VoiceIndicator() {
-  const { sendMessage, lastMessage } = useWebSocket()
-  const [voiceEnabled, setVoiceEnabled] = useState(false)
-  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>('idle')
-  const [micAvailable, setMicAvailable] = useState(true)
+interface VoiceIndicatorProps {
+  /** Called with the transcribed text when speech is recognized */
+  onTranscript: (text: string) => void
+}
 
-  // Handle incoming voice_status WebSocket messages
-  useEffect(() => {
-    if (!lastMessage || lastMessage.type !== 'voice_status') return
-    const payload = lastMessage.payload as VoiceStatusPayload
+// Browser SpeechRecognition API
+const SpeechRecognition =
+  (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
 
-    switch (payload.status) {
-      case 'toggled':
-        setVoiceEnabled(payload.enabled ?? false)
-        if (!payload.enabled) setVoiceStatus('idle')
-        break
-      case 'listening_start':
-        setVoiceStatus('listening_start')
-        break
-      case 'listening_end':
-        setVoiceStatus('idle')
-        break
-      case 'speaking_start':
-        setVoiceStatus('speaking_start')
-        break
-      case 'speaking_end':
-        setVoiceStatus('idle')
-        break
-      case 'error':
-        if ((payload as { error?: string }).error === 'Microphone not available') {
-          setMicAvailable(false)
-        }
-        setVoiceStatus('idle')
-        setVoiceEnabled(false)
-        break
+export default function VoiceIndicator({ onTranscript }: VoiceIndicatorProps) {
+  const [listening, setListening] = useState(false)
+  const [supported] = useState(() => !!SpeechRecognition)
+  const recognitionRef = useRef<any>(null)
+
+  const startListening = useCallback(() => {
+    if (!supported || listening) return
+
+    const recognition = new SpeechRecognition()
+    recognition.lang = 'en-US'
+    recognition.interimResults = true   // show partial results as user speaks
+    recognition.continuous = false      // stop after one phrase
+    recognition.maxAlternatives = 1
+
+    recognition.onstart = () => setListening(true)
+
+    recognition.onresult = (event: any) => {
+      let transcript = ''
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript
+      }
+      // Pass interim + final results to input box
+      onTranscript(transcript)
     }
-  }, [lastMessage])
 
-  const handleToggle = useCallback(() => {
-    sendMessage('voice_toggle', { enabled: !voiceEnabled })
-  }, [sendMessage, voiceEnabled])
+    recognition.onend = () => {
+      setListening(false)
+      recognitionRef.current = null
+    }
 
-  const isListening = voiceStatus === 'listening_start'
-  const isSpeaking = voiceStatus === 'speaking_start'
+    recognition.onerror = (event: any) => {
+      console.warn('Speech recognition error:', event.error)
+      setListening(false)
+      recognitionRef.current = null
+    }
 
-  const buttonTitle = !micAvailable
-    ? 'Microphone not available'
-    : voiceEnabled
-    ? 'Disable voice mode'
-    : 'Enable voice mode'
+    recognitionRef.current = recognition
+    recognition.start()
+  }, [supported, listening, onTranscript])
+
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop()
+    }
+    setListening(false)
+  }, [])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort()
+      }
+    }
+  }, [])
+
+  if (!supported) {
+    return (
+      <button
+        disabled
+        title="Voice input not supported in this browser"
+        className="p-2 rounded-full text-jarvis-muted opacity-40 cursor-not-allowed"
+        aria-label="Voice input not supported"
+      >
+        <MicOff size={18} />
+      </button>
+    )
+  }
 
   return (
-    <div data-testid="voice-indicator" className="flex items-center gap-1.5">
-      {/* Main toggle button */}
-      <button
-        data-testid="voice-toggle-btn"
-        onClick={handleToggle}
-        disabled={!micAvailable}
-        title={buttonTitle}
-        aria-label={buttonTitle}
-        className={`p-2 rounded-full transition-all duration-200 relative ${
-          !micAvailable
-            ? 'text-jarvis-muted opacity-40 cursor-not-allowed'
-            : voiceEnabled
-            ? 'text-jarvis-accent-light bg-jarvis-accent/20 hover:bg-jarvis-accent/30'
-            : 'text-jarvis-muted hover:text-jarvis-text hover:bg-jarvis-card'
-        } ${voiceEnabled && !isListening && !isSpeaking ? 'ring-2 ring-jarvis-accent/40 ring-offset-1 ring-offset-jarvis-surface' : ''}`}
-      >
-        {!micAvailable ? (
-          <MicOff size={18} />
-        ) : isSpeaking ? (
-          <Volume2 size={18} className="text-jarvis-accent-light" />
-        ) : (
-          <Mic size={18} />
-        )}
-      </button>
-
-      {/* Waveform animation when listening */}
-      {isListening && (
-        <div
-          data-testid="voice-waveform"
-          className="flex items-center gap-0.5"
-          aria-label="Listening..."
-        >
-          {[0, 1, 2].map(i => (
-            <span
-              key={i}
-              className="waveform-bar"
-              style={{ animationDelay: `${i * 100}ms` }}
-            />
-          ))}
-        </div>
+    <button
+      data-testid="voice-toggle-btn"
+      onClick={listening ? stopListening : startListening}
+      title={listening ? 'Stop listening' : 'Click to speak'}
+      aria-label={listening ? 'Stop voice input' : 'Start voice input'}
+      className={`p-2 rounded-full transition-all duration-200 relative flex-shrink-0 ${
+        listening
+          ? 'text-jarvis-danger bg-jarvis-danger/20 ring-2 ring-jarvis-danger/40 ring-offset-1 ring-offset-transparent'
+          : 'text-jarvis-muted hover:text-jarvis-accent-light hover:bg-jarvis-accent/10'
+      }`}
+    >
+      {listening ? (
+        <>
+          <Square size={16} />
+          {/* Pulse ring while listening */}
+          <span className="absolute inset-0 rounded-full animate-ping bg-jarvis-danger/20" />
+        </>
+      ) : (
+        <Mic size={18} />
       )}
-    </div>
+    </button>
   )
 }

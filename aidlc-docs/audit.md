@@ -270,3 +270,64 @@
 **Context**: OPERATIONS PHASE acknowledged. AI-DLC workflow COMPLETE.
 
 ---
+
+## Post-Completion Enhancements — Batch Log
+**Timestamp**: 2026-05-04T22:40:00Z
+**User Input**: Multiple enhancement requests after initial build completion
+**AI Response**: Implemented 13 post-completion enhancements across backend and frontend.
+
+### Changes Made:
+
+**Enhancement 1 — Streaming Responses**
+- `ai_core.py`: Added `chat_stream()` async generator using `stream=True` Ollama API
+- `main.py`: Chat handler now uses streaming; sends `stream_start`, `stream_token`, `stream_end` WS messages
+- `ChatPanel.tsx`: Handles streaming messages with real-time token append and blinking cursor
+
+**Enhancement 2 — Message Timestamps**
+- `ChatPanel.tsx`: `formatTime()` helper added; timestamp shown below each message bubble
+
+**Enhancement 3 — Message Copy Button**
+- `ChatPanel.tsx`: `CopyTextButton` component added; appears on hover for assistant messages
+
+**Enhancement 4 — Stop Generation Button**
+- `main.py`: `POST /api/cancel` endpoint + `_cancel_requested` global flag
+- `ChatPanel.tsx`: Send button replaced by Stop (square icon) during processing
+
+**Enhancement 5 — Message Delete**
+- `ChatPanel.tsx`: `handleDeleteMessage` callback + trash icon on hover for every message
+
+**Enhancement 6 — LLM Intent Extraction**
+- `intent_router.py`: Complete rewrite — LLM returns structured JSON `{intent, action, params}`; keyword fallback covers 30+ app names and NL patterns; `_build_enriched_message()` converts params to canonical command strings for existing handlers
+
+**Enhancement 7 — Toast Notifications**
+- `NotificationBar.tsx`: Rewritten as center-top pill toasts with progress bar, icons, 10s auto-hide
+- `WebSocketContext.tsx`: Auto-removes notifications from state after 11s
+- `App.tsx`: NotificationBar moved outside layout flow to prevent overflow clipping
+- `index.css`: Added `shrink` keyframe animation
+
+**Enhancement 8 — Volume/Mute Monitoring**
+- `system_monitor.py`: `_get_volume_state()` via pycaw, `_check_volume_alerts()` with 2s debounce
+- `requirements.txt`: Added `pycaw`, `comtypes`
+- `NotificationBar.tsx`: Added Volume2, VolumeX, Volume1 icons for volume alert types
+
+**Enhancement 9 — JARVIS Ring Animation**
+- `JarvisRing.tsx`: Created — 4 concentric rings using stroke-dasharray (no overflow), tick marks, gold accent, core glow, active processing dots
+- `index.css`: Added `ring-cw`, `ring-ccw`, `pulse-ring`, `dot-pulse` keyframes
+- `ChatPanel.tsx`: Ring shown as background, fades with message count, pulses when active
+
+**Enhancement 10 — Status Indicators**
+- `App.tsx`: `StatusDot` component; Server (WebSocket state) + Ollama (polls `/health` every 15s)
+
+**Enhancement 11 — Floating Input Bar**
+- `ChatPanel.tsx`: Input bar redesigned as fixed-height pill at bottom-right; React state hover expansion (not CSS group-hover); mic anchors collapsed state
+
+**Enhancement 12 — News Panel**
+- `news_module.py`: Created — Google News RSS via `urllib` + `xml.etree`; 7 topic feeds; `_time_ago()` relative timestamps; `_clean_title()` strips source suffix
+- `main.py`: `GET /api/news`, `GET /api/news/topics` endpoints
+- `NewsPanel.tsx`: Created — left-side floating card, topic tabs, skeleton loading, auto-refresh 5min, external link on hover
+
+**Enhancement 13 — UI Layout Redesign**
+- `App.tsx`: StatsSidebar removed; layout simplified to full-width ChatPanel
+- `ChatPanel.tsx`: Messages in absolute-positioned 400px right card; JARVIS ring as background; NewsPanel added to left side
+
+---

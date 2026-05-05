@@ -4,6 +4,8 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useWebSocket } from '../context/WebSocketContext'
 import VoiceIndicator from './VoiceIndicator'
+import JarvisRing from './JarvisRing'
+import NewsPanel from './NewsPanel'
 import type { Message, ChatResponsePayload } from '../types'
 
 function generateId(): string {
@@ -156,6 +158,7 @@ export default function ChatPanel() {
   ])
   const [inputText, setInputText] = useState('')
   const [sending, setSending] = useState(false)
+  const [inputExpanded, setInputExpanded] = useState(false)
   const [pendingConfirmation, setPendingConfirmation] = useState<{
     action_id: string
     action: string
@@ -350,91 +353,140 @@ export default function ChatPanel() {
   return (
     <div
       data-testid="chat-panel"
-      className="flex flex-col flex-1 min-h-0 bg-jarvis-surface"
+      className="flex flex-col flex-1 min-h-0 bg-jarvis-surface relative"
     >
       {/* Messages list */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1">
-        {messages.map(msg => (
-          <MessageBubble key={msg.id} message={msg} onDelete={handleDeleteMessage} />
-        ))}
-        {sending && !isStreaming && (
-          <div className="flex justify-start mb-3">
-            <div className="bg-jarvis-card border border-jarvis-border rounded-2xl rounded-bl-sm px-4 py-2.5">
-              <span className="flex gap-1 items-center text-jarvis-muted text-sm">
-                <span className="animate-bounce delay-0">●</span>
-                <span className="animate-bounce delay-150">●</span>
-                <span className="animate-bounce delay-300">●</span>
-              </span>
-            </div>
-          </div>
-        )}
-        {/* Confirmation dialog */}
-        {pendingConfirmation && (
-          <div
-            data-testid="confirmation-dialog"
-            className="flex justify-start mb-3"
-          >
-            <div className="bg-jarvis-warning/10 border border-jarvis-warning/40 rounded-2xl rounded-bl-sm px-4 py-3 max-w-[80%]">
-              <p className="text-jarvis-warning text-sm font-medium mb-1">⚠ Confirmation Required</p>
-              <p className="text-jarvis-text text-sm mb-3">{pendingConfirmation.details}</p>
-              <div className="flex gap-2">
-                <button
-                  data-testid="confirm-yes-btn"
-                  onClick={handleConfirm}
-                  className="px-3 py-1 text-xs bg-jarvis-danger text-white rounded-lg hover:bg-jarvis-danger/80 transition-colors"
-                >
-                  Confirm
-                </button>
-                <button
-                  data-testid="confirm-no-btn"
-                  onClick={handleDenyConfirmation}
-                  className="px-3 py-1 text-xs bg-jarvis-card border border-jarvis-border text-jarvis-muted rounded-lg hover:text-jarvis-text transition-colors"
-                >
-                  Cancel
-                </button>
+      {/* Messages list — right-aligned floating card, full height */}
+      <div className="flex-1 relative overflow-hidden">
+        {/* JARVIS ring — centered background */}
+        <div
+          className="absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-500"
+          style={{ opacity: messages.length > 4 ? 0 : messages.length > 1 ? 0.15 : 1 }}
+        >
+          <JarvisRing active={sending || isStreaming} size={180} />
+        </div>
+
+        {/* News panel — left side */}
+        <NewsPanel />
+
+        {/* Floating chat card — right side, full height */}
+        <div className="absolute top-4 right-6 bottom-20 w-[400px] flex flex-col bg-jarvis-card/80 backdrop-blur-sm border border-jarvis-border/40 rounded-2xl shadow-xl overflow-hidden z-10">
+          {/* Scrollable messages */}
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1">
+            {messages.map(msg => (
+              <MessageBubble key={msg.id} message={msg} onDelete={handleDeleteMessage} />
+            ))}
+            {sending && !isStreaming && (
+              <div className="flex justify-start mb-3">
+                <div className="bg-jarvis-surface border border-jarvis-border rounded-2xl rounded-bl-sm px-4 py-2.5">
+                  <span className="flex gap-1 items-center text-jarvis-muted text-sm">
+                    <span className="animate-bounce delay-0">●</span>
+                    <span className="animate-bounce delay-150">●</span>
+                    <span className="animate-bounce delay-300">●</span>
+                  </span>
+                </div>
               </div>
-            </div>
+            )}
+            {pendingConfirmation && (
+              <div data-testid="confirmation-dialog" className="flex justify-start mb-3">
+                <div className="bg-jarvis-warning/10 border border-jarvis-warning/40 rounded-2xl rounded-bl-sm px-4 py-3 max-w-[90%]">
+                  <p className="text-jarvis-warning text-sm font-medium mb-1">⚠ Confirmation Required</p>
+                  <p className="text-jarvis-text text-sm mb-3">{pendingConfirmation.details}</p>
+                  <div className="flex gap-2">
+                    <button data-testid="confirm-yes-btn" onClick={handleConfirm}
+                      className="px-3 py-1 text-xs bg-jarvis-danger text-white rounded-lg hover:bg-jarvis-danger/80 transition-colors">
+                      Confirm
+                    </button>
+                    <button data-testid="confirm-no-btn" onClick={handleDenyConfirmation}
+                      className="px-3 py-1 text-xs bg-jarvis-card border border-jarvis-border text-jarvis-muted rounded-lg hover:text-jarvis-text transition-colors">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
           </div>
-        )}
-        <div ref={messagesEndRef} />
+        </div>
       </div>
 
-      {/* Input area */}
-      <div className="border-t border-jarvis-border bg-jarvis-card px-4 py-3">
-        <div className="flex items-end gap-2">
-          <VoiceIndicator />
+      {/* Floating input bar — bottom right, expands on hover */}
+      <div
+        className="absolute bottom-6 right-6 z-10"
+        onMouseEnter={() => setInputExpanded(true)}
+        onMouseLeave={() => { if (!inputText.trim() && document.activeElement !== inputRef.current) setInputExpanded(false) }}
+      >
+        <div
+          className="flex flex-row items-center bg-jarvis-card/95 backdrop-blur-md border border-jarvis-border/60 rounded-full shadow-2xl"
+          style={{
+            height: '44px',
+            width: inputExpanded ? '400px' : '44px',
+            transition: 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+            overflow: 'hidden',
+            padding: '0 6px',
+            gap: '6px',
+          }}
+        >
+          {/* Textarea — grows to fill available space */}
           <textarea
             ref={inputRef}
             data-testid="chat-input"
             value={inputText}
             onChange={e => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Message JARVIS... (Enter to send, Shift+Enter for newline)"
+            onFocus={() => setInputExpanded(true)}
+            placeholder="Message JARVIS..."
             rows={1}
-            className="flex-1 resize-none bg-jarvis-surface border border-jarvis-border rounded-xl px-3 py-2 text-sm text-jarvis-text placeholder-jarvis-muted focus:outline-none focus:border-jarvis-accent transition-colors max-h-32 overflow-y-auto"
-            style={{ minHeight: '40px' }}
+            className="bg-transparent text-sm text-jarvis-text placeholder-jarvis-muted focus:outline-none resize-none"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              height: '28px',
+              lineHeight: '28px',
+              paddingTop: 0,
+              paddingBottom: 0,
+              paddingLeft: '8px',
+              opacity: inputExpanded ? 1 : 0,
+              transition: 'opacity 0.2s ease 0.15s',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+            }}
           />
+
+          {/* Send / Stop */}
           {(sending || isStreaming) ? (
             <button
               data-testid="chat-stop-btn"
               onClick={handleStop}
-              className="p-2 rounded-xl bg-jarvis-danger/20 border border-jarvis-danger/40 text-jarvis-danger hover:bg-jarvis-danger/30 transition-colors flex-shrink-0"
-              aria-label="Stop generation"
-              title="Stop generating"
+              className="flex-shrink-0 w-8 h-8 rounded-full bg-jarvis-danger/20 border border-jarvis-danger/40 text-jarvis-danger hover:bg-jarvis-danger/30 transition-colors flex items-center justify-center"
+              style={{ opacity: inputExpanded ? 1 : 0, transition: 'opacity 0.2s ease 0.15s' }}
+              aria-label="Stop"
             >
-              <Square size={16} />
+              <Square size={13} />
             </button>
           ) : (
             <button
               data-testid="chat-send-btn"
               onClick={handleSend}
               disabled={!inputText.trim()}
-              className="p-2 rounded-xl bg-jarvis-accent text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-jarvis-accent/80 transition-colors flex-shrink-0"
-              aria-label="Send message"
+              className="flex-shrink-0 w-8 h-8 rounded-full bg-jarvis-accent text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-jarvis-accent/80 transition-colors flex items-center justify-center"
+              style={{ opacity: inputExpanded ? 1 : 0, transition: 'opacity 0.2s ease 0.15s' }}
+              aria-label="Send"
             >
-              <Send size={16} />
+              <Send size={13} />
             </button>
           )}
+
+          {/* Mic — always visible, anchors the pill */}
+          <div className="flex-shrink-0 w-8 h-8 flex items-center justify-center">
+            <VoiceIndicator
+              onTranscript={(text) => {
+                setInputText(text)
+                setInputExpanded(true)
+                inputRef.current?.focus()
+              }}
+            />
+          </div>
         </div>
       </div>
     </div>

@@ -6,7 +6,52 @@ import { useWebSocket } from '../context/WebSocketContext'
 import VoiceIndicator from './VoiceIndicator'
 import JarvisRing from './JarvisRing'
 import NewsPanel from './NewsPanel'
+import IntentPicker, { INTENT_OPTIONS } from './IntentPicker'
+import type { IntentOption } from './IntentPicker'
 import type { Message, ChatResponsePayload } from '../types'
+
+// ── Intent helpers ────────────────────────────────────────────────────────────
+
+/** Map frontend intent labels → backend intent keys */
+const INTENT_TO_BACKEND: Record<string, string> = {
+  browser: 'search',
+  chat: 'chat',
+  task: 'calendar',
+  system: 'system',
+  code: 'code',
+  voice: 'voice_control',
+}
+
+/**
+ * Parse an @intent prefix from the raw input.
+ * Returns { intent, cleanText } where intent is the backend key (or null).
+ * e.g. "@browser what are today's prices" → { intent: "search", cleanText: "what are today's prices" }
+ */
+function parseAtIntent(raw: string): { intent: string | null; cleanText: string } {
+  const match = raw.match(/^@(\w+)\s*(.*)$/s)
+  if (!match) return { intent: null, cleanText: raw }
+  const label = match[1].toLowerCase()
+  const rest = match[2].trim()
+  // Accept both the frontend label and the backend key directly
+  const backendIntent =
+    INTENT_TO_BACKEND[label] ??
+    (Object.values(INTENT_TO_BACKEND).includes(label) ? label : null)
+  return { intent: backendIntent, cleanText: rest || raw }
+}
+
+/** Render the @intent badge shown inside the user message bubble */
+function IntentBadge({ label }: { label: string }) {
+  const option = INTENT_OPTIONS.find(o => INTENT_TO_BACKEND[o.id] === label || o.id === label)
+  if (!option) return null
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-jarvis-surface border border-jarvis-border/60 mr-1.5 align-middle ${option.color}`}
+    >
+      {option.icon}
+      @{option.label}
+    </span>
+  )
+}
 
 function generateId(): string {
   return crypto.randomUUID()
@@ -78,7 +123,7 @@ function CopyTextButton({ text }: { text: string }) {
   )
 }
 
-function MessageBubble({ message, onDelete }: { message: Message; onDelete: (id: string) => void }) {
+function MessageBubble({ message, onDelete }: { message: Message & { intent?: string }; onDelete: (id: string) => void }) {
   const isUser = message.role === 'user'
   const isError = message.role === 'error'
   const isStreaming = message.role === 'assistant' && (message as Message & { streaming?: boolean }).streaming
@@ -116,6 +161,8 @@ function MessageBubble({ message, onDelete }: { message: Message; onDelete: (id:
                   : 'bg-jarvis-card text-jarvis-text border border-jarvis-border rounded-bl-sm'
               }`}
             >
+              {/* Show @intent badge on user messages that had an explicit intent */}
+              {isUser && message.intent && <IntentBadge label={message.intent} />}
               {message.content}
               {isStreaming && (
                 <span className="inline-block w-1.5 h-3.5 bg-jarvis-accent-light ml-0.5 animate-pulse rounded-sm" />
@@ -147,7 +194,7 @@ function MessageBubble({ message, onDelete }: { message: Message; onDelete: (id:
 
 export default function ChatPanel() {
   const { sendMessage, lastMessage } = useWebSocket()
-  const [messages, setMessages] = useState<Message[]>([
+  const [messages, setMessages] = useState<(Message & { intent?: string })[]>([
     {
       id: generateId(),
       role: 'assistant',
@@ -164,9 +211,12 @@ export default function ChatPanel() {
     action: string
     details: string
   } | null>(null)
+  // @ intent picker state
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerQuery, setPickerQuery] = useState('')
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  // Track streaming message id → message id mapping
   const streamingIdRef = useRef<Map<string, string>>(new Map())
 
   const isNearBottom = useCallback(() => {
@@ -289,33 +339,61 @@ export default function ChatPanel() {
   }, [])
 
   const handleSend = useCallback(() => {
-    const text = inputText.trim()
-    if (!text || sending) return
+    const raw = inputText.trim()
+    if (!raw || sending) return
 
+    const { intent, cleanText } = parseAtIntent(raw)
+
+    // Display the clean text (without @intent prefix) in the chat bubble,
+    // but attach the intent label so the badge renders
     setMessages(prev => [
       ...prev,
       {
         id: generateId(),
         role: 'user',
-        content: text,
+        content: cleanText,
         type: 'text',
         timestamp: new Date().toISOString(),
+        intent: intent ?? undefined,
       },
     ])
-    sendMessage('user_message', { text })
+
+    // Send to backend — include forced_intent so the router skips LLM classification
+    sendMessage('user_message', {
+      text: cleanText,
+      ...(intent ? { forced_intent: intent } : {}),
+    })
+
     setInputText('')
+    setPickerOpen(false)
     setSending(true)
     inputRef.current?.focus()
   }, [inputText, sending, sendMessage])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Escape dismisses the picker
+      if (e.key === 'Escape' && pickerOpen) {
+        e.preventDefault()
+        setPickerOpen(false)
+        return
+      }
+      // Tab or ArrowDown/Up while picker is open — let picker handle it (future)
+      if (pickerOpen && (e.key === 'Tab' || e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+        e.preventDefault()
+        return
+      }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
+        if (pickerOpen) {
+          // Enter while picker open → dismiss picker, don't send yet
+          setPickerOpen(false)
+          return
+        }
         handleSend()
       }
     },
-    [handleSend]
+    [handleSend, pickerOpen]
   )
 
   const handleConfirm = useCallback(() => {
@@ -348,6 +426,36 @@ export default function ChatPanel() {
 
   const handleDeleteMessage = useCallback((id: string) => {
     setMessages(prev => prev.filter(m => m.id !== id))
+  }, [])
+
+  // ── @ intent picker ───────────────────────────────────────────────────────
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value
+    setInputText(val)
+
+    // Detect "@" at the start of the input (or after clearing to "@")
+    const atMatch = val.match(/^@(\w*)$/)
+    if (atMatch) {
+      setPickerQuery(atMatch[1])
+      setPickerOpen(true)
+    } else if (!val.startsWith('@')) {
+      setPickerOpen(false)
+    }
+  }, [])
+
+  const handleIntentSelect = useCallback((option: IntentOption) => {
+    // Replace whatever is in the input with "@label " ready for the user to type their query
+    setInputText(`@${option.label} `)
+    setPickerOpen(false)
+    setInputExpanded(true)
+    // Focus and move cursor to end
+    requestAnimationFrame(() => {
+      if (inputRef.current) {
+        inputRef.current.focus()
+        const len = inputRef.current.value.length
+        inputRef.current.setSelectionRange(len, len)
+      }
+    })
   }, [])
 
   return (
@@ -416,6 +524,34 @@ export default function ChatPanel() {
         onMouseEnter={() => setInputExpanded(true)}
         onMouseLeave={() => { if (!inputText.trim() && document.activeElement !== inputRef.current) setInputExpanded(false) }}
       >
+        {/* @ Intent Picker — floats above the input bar */}
+        {pickerOpen && (
+          <IntentPicker
+            query={pickerQuery}
+            onSelect={handleIntentSelect}
+            onDismiss={() => setPickerOpen(false)}
+          />
+        )}
+
+        {/* Active @intent indicator strip */}
+        {(() => {
+          const { intent } = parseAtIntent(inputText)
+          const option = intent
+            ? INTENT_OPTIONS.find(o => INTENT_TO_BACKEND[o.id] === intent || o.id === intent)
+            : null
+          return option && inputExpanded ? (
+            <div className={`flex items-center gap-1.5 mb-1 px-3 py-1 rounded-full bg-jarvis-surface border border-jarvis-border/50 text-[11px] ${option.color} w-fit ml-auto`}>
+              {option.icon}
+              <span>Routing to <strong>@{option.label}</strong></span>
+              <button
+                onClick={() => { setInputText(''); setPickerOpen(false) }}
+                className="ml-1 opacity-60 hover:opacity-100 text-jarvis-muted"
+                aria-label="Clear intent"
+              >×</button>
+            </div>
+          ) : null
+        })()}
+
         <div
           className="flex flex-row items-center bg-jarvis-card/95 backdrop-blur-md border border-jarvis-border/60 rounded-full shadow-2xl"
           style={{
@@ -432,10 +568,10 @@ export default function ChatPanel() {
             ref={inputRef}
             data-testid="chat-input"
             value={inputText}
-            onChange={e => setInputText(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onFocus={() => setInputExpanded(true)}
-            placeholder="Message JARVIS..."
+            placeholder="Message JARVIS… or type @ to pick intent"
             rows={1}
             className="bg-transparent text-sm text-jarvis-text placeholder-jarvis-muted focus:outline-none resize-none"
             style={{

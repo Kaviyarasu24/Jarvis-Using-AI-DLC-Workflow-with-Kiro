@@ -83,8 +83,23 @@ class IntentRouter:
         self._handlers[intent] = handler
         logger.info(f"Registered handler for intent: {intent}")
 
-    async def route(self, message: str) -> dict:
-        """Extract structured intent+action from message, dispatch to handler."""
+    async def route(self, message: str, forced_intent: str | None = None) -> dict:
+        """Extract structured intent+action from message, dispatch to handler.
+
+        If forced_intent is provided (e.g. from an @mention in the UI) the LLM
+        classification step is skipped entirely — the message goes straight to
+        the named handler.
+        """
+        if forced_intent:
+            logger.info(f"Forced intent: {forced_intent!r} | msg={message[:60]!r}")
+            handler = self._handlers.get(forced_intent) or self._handlers.get("chat")
+            if handler:
+                try:
+                    return await handler(message)
+                except Exception as e:
+                    logger.error(f"Handler error for forced intent '{forced_intent}': {e}")
+                    return {"text": "Something went wrong. Please try again.", "message_type": "text"}
+
         extraction = await self._extract(message)
         intent = extraction.get("intent", "chat")
         action = extraction.get("action", "respond")

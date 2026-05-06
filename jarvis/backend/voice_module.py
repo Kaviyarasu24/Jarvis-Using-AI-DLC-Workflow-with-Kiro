@@ -58,6 +58,13 @@ class VoiceModule:
         self._state = VoiceState()
         self._listen_task: Optional[asyncio.Task] = None
         self._tts_lock = threading.Lock()
+        # Capture the running event loop at construction time so background
+        # threads can safely schedule coroutines via run_coroutine_threadsafe.
+        # (asyncio.get_event_loop() from a non-async thread is deprecated in 3.10+)
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None  # will be set on first async call
 
         # Check microphone availability
         self._state.available = self._check_microphone()
@@ -96,6 +103,8 @@ class VoiceModule:
 
     async def set_voice_mode(self, enabled: bool) -> None:
         """Enable or disable voice mode."""
+        # Capture the running loop so background threads can use it
+        self._loop = asyncio.get_running_loop()
         if enabled:
             if not self._state.available:
                 await self._ws.send("voice_status", {
@@ -182,21 +191,23 @@ class VoiceModule:
         except sr.UnknownValueError:
             logger.debug("Speech not understood.")
             # Schedule a friendly message (can't await here — blocking thread)
-            asyncio.run_coroutine_threadsafe(
-                self._ws.send("chat_response", {
-                    "text": "I didn't catch that. Please try again.",
-                    "message_type": "text",
-                }),
-                asyncio.get_event_loop(),
-            )
+            if self._loop:
+                asyncio.run_coroutine_threadsafe(
+                    self._ws.send("chat_response", {
+                        "text": "I didn't catch that. Please try again.",
+                        "message_type": "text",
+                    }),
+                    self._loop,
+                )
             return None
 
         except sr.RequestError as e:
             logger.error(f"STT API error: {e}")
-            asyncio.run_coroutine_threadsafe(
-                self._handle_stt_error(str(e)),
-                asyncio.get_event_loop(),
-            )
+            if self._loop:
+                asyncio.run_coroutine_threadsafe(
+                    self._handle_stt_error(str(e)),
+                    self._loop,
+                )
             return None
 
     async def _handle_stt_error(self, error: str) -> None:

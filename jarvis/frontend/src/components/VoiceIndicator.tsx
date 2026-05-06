@@ -27,12 +27,18 @@ export default function VoiceIndicator({ onTranscript }: VoiceIndicatorProps) {
     recognition.onstart = () => setListening(true)
 
     recognition.onresult = (event: any) => {
-      let transcript = ''
+      let finalTranscript = ''
+      let interimTranscript = ''
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        transcript += event.results[i][0].transcript
+        const t = event.results[i][0].transcript
+        if (event.results[i].isFinal) {
+          finalTranscript += t
+        } else {
+          interimTranscript += t
+        }
       }
-      // Pass interim + final results to input box
-      onTranscript(transcript)
+      // Prefer final transcript; fall back to interim while still speaking
+      onTranscript(finalTranscript || interimTranscript)
     }
 
     recognition.onend = () => {

@@ -291,6 +291,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 async def _handle_message(msg: dict) -> None:
     """Route incoming WebSocket messages to the appropriate handler."""
+    global _cancel_requested
     msg_type = msg.get("type", "__unknown__")
     payload = msg.get("payload", {})
 
@@ -298,9 +299,9 @@ async def _handle_message(msg: dict) -> None:
         if msg_type == "user_message":
             text = payload.get("text", "")
             if text.strip():
-                global _cancel_requested
                 _cancel_requested = False  # reset on new message
-                response = await intent_router.route(text)
+                forced_intent = payload.get("forced_intent") or None
+                response = await intent_router.route(text, forced_intent=forced_intent)
                 if _cancel_requested:
                     # Frontend already showed "Generation stopped." — don't send again
                     _cancel_requested = False
@@ -319,7 +320,8 @@ async def _handle_message(msg: dict) -> None:
         elif msg_type == "user_message_from_voice":
             text = payload.get("text", "")
             if text.strip():
-                response = await intent_router.route(text)
+                _cancel_requested = False  # reset on new voice message
+                response = await intent_router.route(text, forced_intent=None)
                 if isinstance(response, dict) and response.get("type") == "confirmation_required":
                     await ws_manager.send(response["type"], response["payload"])
                 elif isinstance(response, dict) and response.get("__streamed__"):

@@ -41,8 +41,8 @@ intent_router = IntentRouter(ai_core, ws_manager)
 system_controller = SystemController(config)
 system_monitor = SystemMonitor(config, ws_manager)
 browser_module = BrowserModule(config, ai_core)
-coding_assistant = CodingAssistant(ai_core)
-calendar_manager = CalendarManager(config)
+coding_assistant = CodingAssistant(ai_core, ws_manager=ws_manager)
+calendar_manager = CalendarManager(config, ws_manager=ws_manager)
 
 
 def _setup_handlers() -> None:
@@ -114,6 +114,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"Voice available: {voice_module.is_available()}")
     _setup_handlers()
     await system_monitor.start()
+    await calendar_manager.start_reminder_loop()
     # Verify Ollama connectivity on startup
     ollama_ok = await ai_core.health_check()
     if ollama_ok:
@@ -124,6 +125,7 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown
     await system_monitor.stop()
+    await calendar_manager.stop_reminder_loop()
     logger.info("JARVIS shutting down.")
 
 
@@ -199,9 +201,10 @@ async def create_task(body: dict):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="title is required")
     task_date = body.get("date") or _today_str()
+    task_time = body.get("time", "")
     description = body.get("description", "")
     from dataclasses import asdict
-    task = calendar_manager.add_task(title, task_date, description)
+    task = calendar_manager.add_task(title, task_date, task_time, description)
     return asdict(task)
 
 
@@ -212,6 +215,17 @@ async def delete_task(task_id: str):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Task not found")
     return {"status": "deleted"}
+
+
+@app.patch("/api/tasks/{task_id}/complete")
+async def complete_task(task_id: str):
+    done = calendar_manager.complete_task(task_id=task_id)
+    if not done:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Task not found")
+    from dataclasses import asdict
+    task = calendar_manager.get_task_by_id(task_id)
+    return asdict(task) if task else {"status": "completed"}
 
 
 @app.get("/api/reminders")

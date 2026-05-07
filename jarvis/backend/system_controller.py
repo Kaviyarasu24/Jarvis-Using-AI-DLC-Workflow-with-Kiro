@@ -98,12 +98,94 @@ class SystemController:
             return ActionResult(success=False, error=str(e))
 
     async def launch_app(self, app_name: str) -> ActionResult:
+        # Map friendly names → Windows executable / shell command
+        _WIN_ALIASES: dict[str, str] = {
+            "chrome":           "chrome",
+            "google chrome":    "chrome",
+            "firefox":          "firefox",
+            "edge":             "msedge",
+            "microsoft edge":   "msedge",
+            "brave":            "brave",
+            "opera":            "opera",
+            "vscode":           "code",
+            "visual studio code": "code",
+            "code":             "code",
+            "pycharm":          "pycharm",
+            "intellij":         "idea",
+            "android studio":   "studio",
+            "terminal":         "wt",
+            "windows terminal": "wt",
+            "cmd":              "cmd",
+            "command prompt":   "cmd",
+            "powershell":       "powershell",
+            "notepad":          "notepad",
+            "notepad++":        "notepad++",
+            "wordpad":          "wordpad",
+            "paint":            "mspaint",
+            "mspaint":          "mspaint",
+            "calculator":       "calc",
+            "calc":             "calc",
+            "explorer":         "explorer",
+            "file explorer":    "explorer",
+            "task manager":     "taskmgr",
+            "taskmgr":          "taskmgr",
+            "control panel":    "control",
+            "settings":         "ms-settings:",
+            "camera":           "microsoft.windows.camera:",
+            "photos":           "ms-photos:",
+            "maps":             "bingmaps:",
+            "mail":             "outlookmail:",
+            "clock":            "ms-clock:",
+            "calendar":         "outlookcal:",
+            "spotify":          "spotify",
+            "vlc":              "vlc",
+            "obs":              "obs64",
+            "steam":            "steam",
+            "epic games":       "epicgameslauncher",
+            "discord":          "discord",
+            "zoom":             "zoom",
+            "teams":            "teams",
+            "outlook":          "outlook",
+            "word":             "winword",
+            "excel":            "excel",
+            "powerpoint":       "powerpnt",
+            "gimp":             "gimp",
+            "blender":          "blender",
+            "figma":            "figma",
+            "postman":          "postman",
+            "docker":           "docker desktop",
+            "winrar":           "winrar",
+            "7-zip":            "7zfm",
+            "snipping tool":    "snippingtool",
+            "regedit":          "regedit",
+            "registry editor":  "regedit",
+            "device manager":   "devmgmt.msc",
+            "services":         "services.msc",
+            "msconfig":         "msconfig",
+            "dxdiag":           "dxdiag",
+            "charmap":          "charmap",
+        }
+
+        resolved = _WIN_ALIASES.get(app_name.lower().strip(), app_name)
         try:
             loop = asyncio.get_event_loop()
-            if os.name == "nt":  # Windows
-                await loop.run_in_executor(None, lambda: os.startfile(app_name))
+            if os.name == "nt":
+                # ms-* and outlook* URIs need ShellExecute via startfile
+                if ":" in resolved and not resolved.startswith(("C:", "D:")):
+                    await loop.run_in_executor(None, lambda: os.startfile(resolved))
+                else:
+                    # Use subprocess so PATH is searched (handles code, chrome, etc.)
+                    await loop.run_in_executor(
+                        None,
+                        lambda: subprocess.Popen(
+                            resolved,
+                            shell=True,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        ),
+                    )
             else:
-                await loop.run_in_executor(None, lambda: subprocess.Popen([app_name]))
+                await loop.run_in_executor(None, lambda: subprocess.Popen([resolved]))
             return ActionResult(success=True, output=f"Launched: {app_name}")
         except Exception as e:
             return ActionResult(success=False, error=f"Could not launch '{app_name}': {e}")

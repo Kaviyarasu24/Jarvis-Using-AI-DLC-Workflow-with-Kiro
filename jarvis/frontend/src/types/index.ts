@@ -48,7 +48,9 @@ export interface Task {
   id: string
   title: string
   date: string          // "YYYY-MM-DD"
+  time: string          // "HH:MM" or "" if no time set
   description: string
+  completed: boolean
   created_at: string    // ISO 8601
 }
 

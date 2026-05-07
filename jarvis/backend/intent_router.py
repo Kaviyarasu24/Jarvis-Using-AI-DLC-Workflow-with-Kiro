@@ -170,7 +170,7 @@ class IntentRouter:
         # ── System: launch app ──────────────────────────────────────────────
         # Matches: "open X", "launch X", "start X", "can you open X",
         #          "please open X", "help me open X", "I need X open"
-        _APPS = r'(notepad|chrome|firefox|edge|calculator|explorer|file explorer|cmd|command prompt|terminal|powershell|word|excel|powerpoint|vlc|spotify|paint|task manager|control panel|settings|camera|photos|calendar|clock|maps|mail|outlook|teams|zoom|discord|vscode|visual studio|code|pycharm|intellij|android studio|obs|steam|epic games|brave|opera)'
+        _APPS = r'(notepad|chrome|firefox|edge|calculator|explorer|file explorer|cmd|command prompt|terminal|powershell|word|excel|powerpoint|vlc|spotify|paint|task manager|control panel|settings|camera|photos|calendar|clock|maps|mail|outlook|teams|zoom|discord|vscode|visual studio|code|pycharm|intellij|android studio|obs|steam|epic games|brave|opera|winrar|7-zip|notepad\+\+|gimp|blender|figma|postman|insomnia|docker|wsl|hyper|windows terminal|snipping tool|magnifier|narrator|on-screen keyboard|remote desktop|registry editor|regedit|device manager|disk management|event viewer|services|msconfig|taskmgr|mspaint|wordpad|charmap|dxdiag)'
         app_match = re.search(
             r'(?:open|launch|start|run|load|bring up|pull up|show me|can you open|please open|help.*open|need.*open|want.*open|could you open|would you open)\s+' + _APPS,
             msg
